@@ -18,7 +18,12 @@
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
-    "eject": "react-scripts eject"
+    "eject": "react-scripts eject",
+    "server": "npm --prefix server run start",
+    "server:dev": "npm --prefix server run dev",
+    "dev": "concurrently \"npm run server:dev\" \"npm start\"",
+    "mongo:up": "docker compose up -d mongo",
+    "mongo:down": "docker compose down"
   },
   "eslintConfig": {
     "extends": [
@@ -38,7 +43,9 @@
       "last 1 safari version"
     ]
   },
+  "proxy": "http://localhost:5000",
   "devDependencies": {
+    "concurrently": "^9.1.2",
     "autoprefixer": "^10.4.21",
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.17"
