@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Sparkles, Star, TrendingUp, Search, Filter, Copy, Heart, Edit, Trash2, Check, Calendar, Hash, X, Save, Sun, Moon } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { listPrompts, createPrompt, updatePrompt as apiUpdatePrompt, deletePrompt as apiDeletePrompt, markPromptUsed } from '../api';
 
 // Card Component
 const ModernCard = ({ children, className = '', onClick, interactive = false }) => {
@@ -577,20 +578,20 @@ export default function PromptGallery() {
   const [showForm, setShowForm] = useState(false);
   const [editingPrompt, setEditingPrompt] = useState(null);
 
-  // Load prompts from localStorage on component mount
+  // Load prompts from API on mount
   useEffect(() => {
-    const savedPrompts = localStorage.getItem('prompt-gallery-prompts');
-    if (savedPrompts) {
-      const parsed = JSON.parse(savedPrompts);
-      setPrompts(parsed);
-      setFilteredPrompts(parsed);
-    }
+    let isMounted = true;
+    listPrompts()
+      .then((data) => {
+        if (!isMounted) return;
+        setPrompts(data);
+        setFilteredPrompts(data);
+      })
+      .catch((err) => {
+        console.error('Failed to load prompts:', err);
+      });
+    return () => { isMounted = false; };
   }, []);
-
-  // Save prompts to localStorage whenever prompts change
-  useEffect(() => {
-    localStorage.setItem('prompt-gallery-prompts', JSON.stringify(prompts));
-  }, [prompts]);
 
   // Filter prompts based on current filters
   useEffect(() => {
@@ -626,54 +627,45 @@ export default function PromptGallery() {
     setFilteredPrompts(filtered);
   }, [prompts, searchTerm, selectedCategory, selectedTags, showFavoritesOnly]);
 
-  const generateId = () => {
-    return Date.now().toString(36) + Math.random().toString(36).substr(2);
-  };
-
   const handleSavePrompt = (promptData) => {
     if (editingPrompt) {
-      // Update existing prompt
-      setPrompts(prev => prev.map(p => 
-        p.id === editingPrompt.id ? { ...promptData, id: editingPrompt.id } : p
-      ));
+      apiUpdatePrompt(editingPrompt.id, { ...promptData })
+        .then((updated) => {
+          setPrompts(prev => prev.map(p => p.id === editingPrompt.id ? updated : p));
+          setShowForm(false);
+          setEditingPrompt(null);
+        })
+        .catch((err) => console.error('Failed to update prompt:', err));
     } else {
-      // Add new prompt
-      const newPrompt = {
-        ...promptData,
-        id: generateId(),
-        useCount: 0,
-        lastUsed: new Date().toISOString()
-      };
-      setPrompts(prev => [newPrompt, ...prev]);
+      createPrompt({ ...promptData })
+        .then((created) => {
+          setPrompts(prev => [created, ...prev]);
+          setShowForm(false);
+          setEditingPrompt(null);
+        })
+        .catch((err) => console.error('Failed to create prompt:', err));
     }
-    
-    setShowForm(false);
-    setEditingPrompt(null);
   };
 
   const handleCopyPrompt = async (prompt) => {
     try {
       await navigator.clipboard.writeText(prompt.content);
-      
-      // Update use count and last used
-      setPrompts(prev => prev.map(p => 
-        p.id === prompt.id 
-          ? { 
-              ...p, 
-              useCount: (p.useCount || 0) + 1, 
-              lastUsed: new Date().toISOString() 
-            }
-          : p
-      ));
+      const updated = await markPromptUsed(prompt.id);
+      setPrompts(prev => prev.map(p => p.id === prompt.id ? updated : p));
     } catch (err) {
-      console.error('Failed to copy prompt:', err);
+      console.error('Failed to copy or update usage:', err);
     }
   };
 
   const handleToggleFavorite = (promptId) => {
-    setPrompts(prev => prev.map(p => 
-      p.id === promptId ? { ...p, isFavorite: !p.isFavorite } : p
-    ));
+    const target = prompts.find(p => p.id === promptId);
+    if (!target) return;
+    const nextValue = !target.isFavorite;
+    apiUpdatePrompt(promptId, { isFavorite: nextValue })
+      .then((updated) => {
+        setPrompts(prev => prev.map(p => p.id === promptId ? updated : p));
+      })
+      .catch((err) => console.error('Failed to toggle favorite:', err));
   };
 
   const handleEditPrompt = (prompt) => {
@@ -682,9 +674,12 @@ export default function PromptGallery() {
   };
 
   const handleDeletePrompt = (promptId) => {
-    if (window.confirm('Are you sure you want to delete this prompt?')) {
-      setPrompts(prev => prev.filter(p => p.id !== promptId));
-    }
+    if (!window.confirm('Are you sure you want to delete this prompt?')) return;
+    apiDeletePrompt(promptId)
+      .then(() => {
+        setPrompts(prev => prev.filter(p => p.id !== promptId));
+      })
+      .catch((err) => console.error('Failed to delete prompt:', err));
   };
 
   const handleAddNew = () => {
